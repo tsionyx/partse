@@ -9,6 +9,8 @@ macro_rules! gen_parts {
             ),+ $(,)?
         }
     ) => {
+        $crate::unique_chars![ $($symbol,)+ => "Duplicate format specifiers" ];
+
         $(#[$outer])*
         $struct_vis enum $StructName {
             $(
@@ -73,4 +75,26 @@ macro_rules! gen_parts {
             }
         }
     };
+}
+
+#[macro_export]
+macro_rules! unique_chars {
+    ( $( $x:expr ),+ $(,)? => $msg: expr ) => {
+        mod _unique {
+            // Create a constant array from the input elements
+            const TEMP_ARRAY: &[char] = &[$($x),*];
+
+            // Ensure the array length is available at compile time
+            const TEMP_ARRAY_LEN: usize = TEMP_ARRAY.len();
+
+            // Use a constant assertion to check uniqueness
+            const _: () = {
+                assert!($crate::check_unique::<TEMP_ARRAY_LEN>(TEMP_ARRAY), $msg);
+            };
+        }
+    };
+
+    ( $( $x:expr ),+ $(,)? ) => {
+        $crate::unique_chars!( $($x),+ => "Duplicate values found in the input");
+    }
 }
