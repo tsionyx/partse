@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, mem::discriminant};
 
 use nom::{bytes::complete::tag, error::Error as NomInternalError, IResult};
 
@@ -124,14 +124,51 @@ pub trait AtomParser {
     }
 }
 
+pub trait PartParser {
+    type Atom: AtomParser;
+
+    fn parse<'i>(input: &'i str, format: &str) -> Result<(&'i str, Vec<Self>), Error>
+    where
+        Self: From<Self::Atom> + Sized + Debug,
+        Self::Atom: Sized + Debug,
+        <Self::Atom as AtomParser>::ItemSpecifier: Debug,
+    {
+        let (rest, atoms) = Self::Atom::parse(input, format)?;
+
+        let expected_size = atoms.len();
+        let mut parts = Vec::with_capacity(expected_size);
+        for atom in atoms {
+            let new_part = Self::from(atom);
+            let d = discriminant(&new_part);
+            let matched = parts.iter().find(|&p| discriminant(p) == d);
+            if let Some(matched) = matched {
+                return Err(Error::DuplicateAtoms {
+                    previous_part: format!("{:?}", matched),
+                    new_part: format!("{:?}", new_part),
+                });
+            }
+            parts.push(new_part);
+        }
+
+        assert_eq!(parts.len(), expected_size);
+        Ok((rest, parts))
+    }
+}
+
 type NomError<E> = nom::Err<NomInternalError<E>>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Nom(NomError<String>),
-    InvalidValue { msg: String },
+    InvalidValue {
+        msg: String,
+    },
     InvalidFormatSpecifier(char),
     UnexpectedEol,
+    DuplicateAtoms {
+        previous_part: String,
+        new_part: String,
+    },
 }
 
 impl From<NomError<String>> for Error {

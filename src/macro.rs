@@ -34,6 +34,10 @@ macro_rules! gen_parts {
             }
         }
 
+        impl $crate::PartParser for $Part {
+            type Atom = $Atom;
+        }
+
         $(#[$outer])*
         $struct_vis enum $Atom {
             $(

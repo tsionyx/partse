@@ -198,6 +198,8 @@ fn parse_crs(input: &str) -> IResult<&str, CoordinateReferenceSystem> {
 
 #[cfg(test)]
 mod tests {
+    use partse::PartParser as _;
+
     use super::*;
 
     #[test]
@@ -206,12 +208,20 @@ mod tests {
         let input = "72 deg 37 min 19.11792 sec (N)";
 
         let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
-
         let lat = [
             CoordinateAtom::LatDegreesU(72),
             CoordinateAtom::LatMinutes(37),
             CoordinateAtom::LatSecondsFractional(19.11792),
             CoordinateAtom::LatHemisphere(Pole::North),
+        ];
+        assert_eq!(values, lat);
+
+        let (_, values) = CoordinatePart::parse(input, format).expect("Parsing failed");
+        let lat = [
+            CoordinatePart::LatDegrees(72.0),
+            CoordinatePart::LatMinutes(37.0),
+            CoordinatePart::LatSeconds(19.11792),
+            CoordinatePart::LatHemisphere(Pole::North),
         ];
         assert_eq!(values, lat);
     }
@@ -222,10 +232,16 @@ mod tests {
         let input = "72.61976 (N)";
 
         let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
-
         let lat = [
             CoordinateAtom::LatDegreesDecimalU(72.61976),
             CoordinateAtom::LatHemisphere(Pole::North),
+        ];
+        assert_eq!(values, lat);
+
+        let (_, values) = CoordinatePart::parse(input, format).expect("Parsing failed");
+        let lat = [
+            CoordinatePart::LatDegrees(72.61976),
+            CoordinatePart::LatHemisphere(Pole::North),
         ];
         assert_eq!(values, lat);
     }
@@ -249,6 +265,30 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_degrees_in_latitude() {
+        let format = "%u deg %U min %S sec (%P)";
+        let input = "72 deg 37 min 19.11792 sec (N)";
+
+        let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
+        let lat = [
+            CoordinateAtom::LatDegreesU(72),
+            CoordinateAtom::LatDegreesDecimalU(37.0),
+            CoordinateAtom::LatSecondsFractional(19.11792),
+            CoordinateAtom::LatHemisphere(Pole::North),
+        ];
+        assert_eq!(values, lat);
+
+        let err = CoordinatePart::parse(input, format).unwrap_err();
+        assert_eq!(
+            err,
+            Error::DuplicateAtoms {
+                previous_part: "LatDegrees(72.0)".into(),
+                new_part: "LatDegrees(37.0)".into(),
+            }
+        );
+    }
+
+    #[test]
     fn test_unexpected_end_of_input() {
         let format = "%u deg %m min %S sec (%Z)";
         let input = "72 deg 37 min 19.11792 sec";
@@ -263,8 +303,11 @@ mod tests {
         let input = "Latitude: 72 degrees";
 
         let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
-
         let lat = [CoordinateAtom::LatDegreesU(72)];
+        assert_eq!(values, lat);
+
+        let (_, values) = CoordinatePart::parse(input, format).expect("Parsing failed");
+        let lat = [CoordinatePart::LatDegrees(72.0)];
         assert_eq!(values, lat);
     }
 }
