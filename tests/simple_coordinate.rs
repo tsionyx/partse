@@ -6,7 +6,7 @@ use nom::{
     number::complete::double,
     IResult,
 };
-use partse::{gen_parts, Error, PartParser};
+use partse::{gen_parts, AtomParser, Error};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum Pole {
@@ -27,67 +27,83 @@ enum CoordinateReferenceSystem {
 }
 
 // TODO: valid combinations:
-//  - only one item in a group could appear;
-//  - some fields imply the other(s);
-//  - some fields are completely optional;
-//  - different structs could be created:
-//    - Latitude:
-//      - deg
-//       - optional pole;
-//       - optional min;
-//         - optional sec;
-//    - Longitude:
-//      - deg
-//       - optional rotational direction;
-//       - optional min;
-//         - optional sec;
-//    - Coordinate:
-//      - lat;
-//      - long;
-//      - optional height;
-//      - optional CRS.
+enum Latitude {
+    // u (m (s|S)? | M)? (p | P)?
+    // i (m (s|S)? | M)?
+    // U (p | P)?
+    // I
+}
+
+enum Longitude {
+    // d (n (t|T)? | N)? (r | R)?
+    // f (n (t|T)? | N)?
+    // D (r | R)?
+    // F
+}
+
+enum Coordinate {
+    // Lat Long (h | z | H | Z)? c?
+}
 
 gen_parts! {
     #[derive(Debug, Copy, Clone, PartialEq)]
-    enum CoordinatePart: CoordinateItem {
+    enum CoordinatePart: CoordinateAtom: CoordinateAtomName {
         // Latitude-specific
-        LatDegreesU(u8) = 'u' => parse_u8; |x: &u8| *x <= 90,
-        LatDegreesI(i8) = 'i' => parse_i8; |x: &i8| (-90..=90).contains(x),
-        LatDegreesDecimalU(f64) = 'U' => parse_f64_non_neg; |x: &f64| *x <= 90.0,
-        LatDegreesDecimalI(f64) = 'I' => parse_f64; |x: &f64| *x >= -90.0 && *x <= 90.0,
+        LatDegrees(f64) as oneof {
+            LatDegreesU(u8) = 'u' => parse_u8; |x: &u8| *x <= 90,
+            LatDegreesI(i8) = 'i' => parse_i8; |x: &i8| (-90..=90).contains(x),
+            LatDegreesDecimalU(f64) = 'U' => parse_f64_non_neg; |x: &f64| *x <= 90.0,
+            LatDegreesDecimalI(f64) = 'I' => parse_f64; |x: &f64| *x >= -90.0 && *x <= 90.0,
+        }
 
-        LatMinutes(u8) = 'm' => parse_u8; |x: &u8| *x < 60,
-        LatMinutesFractional(f64) = 'M' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        LatMinutes(f64) as oneof {
+            LatMinutes(u8) = 'm' => parse_u8; |x: &u8| *x < 60,
+            LatMinutesFractional(f64) = 'M' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        }
 
-        LatSeconds(u8) = 's' => parse_u8; |x: &u8| *x < 60,
-        LatSecondsFractional(f64) = 'S' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        LatSeconds(f64) as oneof {
+            LatSeconds(u8) = 's' => parse_u8; |x: &u8| *x < 60,
+            LatSecondsFractional(f64) = 'S' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        }
 
-        LatHemisphereSign(Pole) = 'p' => parse_lat_hemisphere_sign; |_| true,
-        LatHemisphere(Pole) = 'P' => parse_lat_hemisphere; |_| true,
+        LatHemisphere(Pole) as oneof {
+            LatHemisphereSign(Pole) = 'p' => parse_lat_hemisphere_sign; |_| true,
+            LatHemisphere(Pole) = 'P' => parse_lat_hemisphere; |_| true,
+        }
 
         // Longitude-specific
-        LongDegreesU(u8) = 'd' => parse_u8; |x: &u8| *x <= 180,
-        LongDegreesI(i16) = 'f' => parse_i16; |x: &i16| (-180..=180).contains(x),
-        LongDegreesDecimalU(f64) = 'D' => parse_f64_non_neg; |x: &f64| *x <= 180.0,
-        LongDegreesDecimalI(f64) = 'F' => parse_f64; |x: &f64| *x >= -180.0 && *x <= 180.0,
+        LongDegrees(f64) as oneof {
+            LongDegreesU(u8) = 'd' => parse_u8; |x: &u8| *x <= 180,
+            LongDegreesI(i16) = 'f' => parse_i16; |x: &i16| (-180..=180).contains(x),
+            LongDegreesDecimalU(f64) = 'D' => parse_f64_non_neg; |x: &f64| *x <= 180.0,
+            LongDegreesDecimalI(f64) = 'F' => parse_f64; |x: &f64| *x >= -180.0 && *x <= 180.0,
+        }
 
-        LongMinutes(u8) = 'n' => parse_u8; |x: &u8| *x < 60,
-        LongMinutesFractional(f64) = 'N' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        LongMinutes(f64) as oneof {
+            LongMinutes(u8) = 'n' => parse_u8; |x: &u8| *x < 60,
+            LongMinutesFractional(f64) = 'N' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        }
 
-        LongSeconds(u8) = 't' => parse_u8; |x: &u8| *x < 60,
-        LongSecondsFractional(f64) = 'T' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        LongSeconds(f64) as oneof {
+            LongSeconds(u8) = 't' => parse_u8; |x: &u8| *x < 60,
+            LongSecondsFractional(f64) = 'T' => parse_f64_non_neg; |x: &f64| *x <= 60.0,
+        }
 
-        LongHemisphereSign(RotationalDirection) = 'r' => parse_long_hemisphere_sign; |_| true,
-        LongHemisphere(RotationalDirection) = 'R' => parse_long_hemisphere; |_| true,
+        LongHemisphere(RotationalDirection) as oneof {
+            LongHemisphereSign(RotationalDirection) = 'r' => parse_long_hemisphere_sign; |_| true,
+            LongHemisphere(RotationalDirection) = 'R' => parse_long_hemisphere; |_| true,
+        }
 
-        // Height (z-coordinate)
-        HeightU(u16) = 'h' => parse_u16; |_| true,
-        HeightI(i16) = 'z' => parse_i16; |_| true,
-        HeightDecimalU(f64) = 'H' => parse_f64_non_neg; |_| true,
-        HeightDecimalI(f64) = 'Z' => parse_f64; |_| true,
+        Height(f64) as oneof {  // (z-coordinate)
+            HeightU(u16) = 'h' => parse_u16; |_| true,
+            HeightI(i16) = 'z' => parse_i16; |_| true,
+            HeightDecimalU(f64) = 'H' => parse_f64_non_neg; |_| true,
+            HeightDecimalI(f64) = 'Z' => parse_f64; |_| true,
+        }
 
-        // Reference system
-        ReferenceSystem(CoordinateReferenceSystem) = 'c' => parse_crs; |_| true,
+        ReferenceSystem(CoordinateReferenceSystem) as oneof {
+            ReferenceSystem(CoordinateReferenceSystem) = 'c' => parse_crs; |_| true,
+        }
     }
 }
 
@@ -189,13 +205,13 @@ mod tests {
         let format = "%u deg %m min %S sec (%P)";
         let input = "72 deg 37 min 19.11792 sec (N)";
 
-        let (_, values) = CoordinatePart::parse(input, format).expect("Parsing failed");
+        let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
 
         let lat = [
-            CoordinatePart::LatDegreesU(72),
-            CoordinatePart::LatMinutes(37),
-            CoordinatePart::LatSecondsFractional(19.11792),
-            CoordinatePart::LatHemisphere(Pole::North),
+            CoordinateAtom::LatDegreesU(72),
+            CoordinateAtom::LatMinutes(37),
+            CoordinateAtom::LatSecondsFractional(19.11792),
+            CoordinateAtom::LatHemisphere(Pole::North),
         ];
         assert_eq!(values, lat);
     }
@@ -205,11 +221,11 @@ mod tests {
         let format = "%U (%P)";
         let input = "72.61976 (N)";
 
-        let (_, values) = CoordinatePart::parse(input, format).expect("Parsing failed");
+        let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
 
         let lat = [
-            CoordinatePart::LatDegreesDecimalU(72.61976),
-            CoordinatePart::LatHemisphere(Pole::North),
+            CoordinateAtom::LatDegreesDecimalU(72.61976),
+            CoordinateAtom::LatHemisphere(Pole::North),
         ];
         assert_eq!(values, lat);
     }
@@ -220,7 +236,7 @@ mod tests {
         let format = "%u deg %m min %S sec (%Z)";
         let input = "91 deg 37 min 19.11792 sec (N)";
 
-        let _ = CoordinatePart::parse(input, format).unwrap();
+        let _ = CoordinateAtom::parse(input, format).unwrap();
     }
 
     #[test]
@@ -228,7 +244,7 @@ mod tests {
         let format = "%u deg %m min %x sec (%Z)";
         let input = "72 deg 37 min 19.11792 sec (N)";
 
-        let err = CoordinatePart::parse(input, format).expect_err("Parsing succeeded");
+        let err = CoordinateAtom::parse(input, format).expect_err("Parsing succeeded");
         assert_eq!(err, Error::InvalidFormatSpecifier('x'));
     }
 
@@ -237,7 +253,7 @@ mod tests {
         let format = "%u deg %m min %S sec (%Z)";
         let input = "72 deg 37 min 19.11792 sec";
 
-        let err = CoordinatePart::parse(input, format).expect_err("Parsing succeeded");
+        let err = CoordinateAtom::parse(input, format).expect_err("Parsing succeeded");
         assert_eq!(err, Error::UnexpectedEol);
     }
 
@@ -246,9 +262,9 @@ mod tests {
         let format = "Latitude: %u degrees";
         let input = "Latitude: 72 degrees";
 
-        let (_, values) = CoordinatePart::parse(input, format).expect("Parsing failed");
+        let (_, values) = CoordinateAtom::parse(input, format).expect("Parsing failed");
 
-        let lat = [CoordinatePart::LatDegreesU(72)];
+        let lat = [CoordinateAtom::LatDegreesU(72)];
         assert_eq!(values, lat);
     }
 }
