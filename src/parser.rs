@@ -31,12 +31,13 @@ impl<FS> FullFormatSpecifier<FS> {
 
         while let Some(c) = chars.next() {
             if c == percent {
-                if let Some(ch) = chars.next() {
-                    if let Some(spec) = FS::from_symbol(ch) {
+                if let Some(next_ch) = chars.next() {
+                    if next_ch == percent {
+                        specifiers.push(Self::Literal(percent.to_string()));
+                    } else if let Some(spec) = FS::from_symbol(next_ch) {
                         specifiers.push(Self::Domain(spec));
                     } else {
-                        // TODO: if ch == percent: start `Self::Literal("%")`
-                        return Err(Error::InvalidFormatSpecifier(ch));
+                        return Err(Error::InvalidFormatSpecifier(next_ch));
                     }
                 } else {
                     return Err(Error::UnexpectedEol);
