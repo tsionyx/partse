@@ -2,35 +2,64 @@
 macro_rules! gen_parts {
     (
         $(#[$outer:meta])*
-        $struct_vis:vis enum $StructName:ident: $ItemName:ident {
+        $struct_vis:vis enum $Part:ident: $Atom:ident: $AtomName:ident {
             $(
-                $(#[$inner:ident $($args:tt)*])*
-                $field:ident($field_ty:ty) = $symbol:expr => $parse_fn:expr ; $valid:expr
-            ),+ $(,)?
+            $part:ident($part_ty:ty) as oneof {
+                $(
+                    $(#[$inner:ident $($args:tt)*])*
+                    $field:ident($field_ty:ty) = $symbol:expr => $parse_fn:expr ; $valid:expr
+                ),+ $(,)?
+            }
+            )+
         }
     ) => {
-        $crate::unique_chars![ $($symbol,)+ => "Duplicate format specifiers" ];
+        $crate::unique_chars![ $($($symbol,)+)+ => "Duplicate format specifiers" ];
 
         $(#[$outer])*
-        $struct_vis enum $StructName {
+        $struct_vis enum $Part {
+          $(
+            $part($part_ty),
+          )+
+        }
+
+        impl From<$Atom> for $Part {
+            fn from(val: $Atom) -> Self {
+                match val {
+                    $(
+                        $(
+                          $Atom::$field(x) => Self::$part(<$part_ty>::from(x)),
+                        )+
+                    )+
+                }
+            }
+        }
+
+        $(#[$outer])*
+        $struct_vis enum $Atom {
+            $(
             $(
                 $(#[$inner $($args)*])*
                 $field($field_ty),
             )+
+            )+
         }
 
         $(#[$outer])*
-        enum $ItemName {
+        enum $AtomName {
+          $(
           $(
             $field,
           )+
+          )+
         }
 
-        impl $crate::FormatSpecifier for $ItemName {
+        impl $crate::FormatSpecifier for $AtomName {
             fn symbol(&self) -> char {
                 match self {
                     $(
+                    $(
                       Self::$field => $symbol,
+                    )+
                     )+
                 }
             }
@@ -38,38 +67,46 @@ macro_rules! gen_parts {
             fn from_symbol(ch: char) -> Option<Self> {
                 match ch {
                     $(
+                    $(
                        $symbol => Some(Self::$field),
+                    )+
                     )+
                     _ => None,
                 }
             }
         }
 
-        impl $crate::PartParser for $StructName {
-            type ItemSpecifier = $ItemName;
+        impl $crate::AtomParser for $Atom {
+            type ItemSpecifier = $AtomName;
 
             fn get_specifier(&self) -> Self::ItemSpecifier {
                 match self {
                     $(
+                    $(
                       Self::$field(_) => Self::ItemSpecifier::$field,
+                    )+
                     )+
                 }
             }
 
             fn is_valid(&self) -> bool {
-                match self {
+                 match self {
+                    $(
                     $(
                       Self::$field(x) => $valid(x),
+                    )+
                     )+
                 }
             }
 
             fn parse_domain<'i>(input: &'i str, format: &Self::ItemSpecifier) -> IResult<&'i str, Self> {
-                match format {
+                 match format {
+                    $(
                     $(
                       Self::ItemSpecifier::$field => {
                         $parse_fn(input).map(|(rest, value)| (rest, Self::$field(value)))
                       }
+                    )+
                     )+
                 }
             }

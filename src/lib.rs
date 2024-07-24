@@ -3,6 +3,6 @@ mod parser;
 mod utils;
 
 pub use self::{
-    parser::{Error, FormatSpecifier, PartParser},
+    parser::{AtomParser, Error, FormatSpecifier},
     utils::check_unique,
 };

@@ -59,7 +59,7 @@ impl<FS> FullFormatSpecifier<FS> {
 
     fn parse_single<'i, T>(&self, input: &'i str) -> Result<(&'i str, Option<T>), Error>
     where
-        T: PartParser<ItemSpecifier = FS> + Debug,
+        T: AtomParser<ItemSpecifier = FS> + Debug,
         FS: Debug,
     {
         match self {
@@ -85,7 +85,7 @@ impl<FS> FullFormatSpecifier<FS> {
 
     fn parse_many<'i, T>(selves: &[Self], input: &'i str) -> Result<(&'i str, Vec<T>), Error>
     where
-        T: PartParser<ItemSpecifier = FS> + Debug,
+        T: AtomParser<ItemSpecifier = FS> + Debug,
         FS: Debug,
     {
         let mut results = Vec::new();
@@ -103,7 +103,7 @@ impl<FS> FullFormatSpecifier<FS> {
     }
 }
 
-pub trait PartParser {
+pub trait AtomParser {
     type ItemSpecifier: FormatSpecifier;
 
     fn get_specifier(&self) -> Self::ItemSpecifier;
