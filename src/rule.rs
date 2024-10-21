@@ -3,10 +3,36 @@ use thiserror::Error;
 /// Defines the rules to match combinations of atoms in a (unordered) set
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rule<Atom> {
-    And(Vec<Self>),      // All rules must match
-    Or(Vec<Self>),       // At least one rule must match
+    And(Box<[Self]>),    // All rules must match
+    Or(Box<[Self]>),     // At least one rule must match
     Optional(Box<Self>), // The rule may or may not be present
     Atom(Atom),          // Match a single atom
+}
+
+impl<Atom> Rule<Atom> {
+    /// Shortcut to create the set of AND conditions.
+    pub fn and(args: Vec<Self>) -> Self {
+        Self::And(args.into_boxed_slice())
+    }
+
+    /// Shortcut to create the set of OR conditions.
+    ///
+    /// # Error
+    /// - [`Error::EmptyOrList`] if the rule itself contains empty [`Rule::Or`] somewhere in it.
+    pub fn or(args: Vec<Self>) -> Result<Self, Error<Atom>> {
+        if args.is_empty() {
+            Err(Error::EmptyOrList)
+        } else {
+            Ok(Self::Or(args.into_boxed_slice()))
+        }
+    }
+
+    /// Shortcut to create the set of OR conditions with at least one element.
+    pub fn or_1(head: Self, tail: impl Into<Vec<Self>>) -> Self {
+        let mut args = tail.into();
+        args.insert(0, head);
+        Self::Or(args.into_boxed_slice())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Error)]
@@ -130,23 +156,23 @@ macro_rules! rule {
     //     $(
     //         rules.push(rule!($rest));
     //     )+
-    //     Rule::And(rules)
+    //     Rule::and(rules)
     // }};
 
     // // OR operation with | (multiple operands)
     // ($first:tt | $($rest:tt)|+ $(|)?) => {{
-    //     let mut rules = vec![rule!($first)];
+    //     let mut rules = vec![];
     //     $(
     //         rules.push(rule!($rest));
     //     )+
-    //     Rule::Or(rules)
+    //     Rule::or_1(rule!($first), rules)
     // }};
 
     // binary AND operation using '&' with the second optional
     ($first:tt & $second:tt+ ?) => {{
         let first = rule!($first);
         let second = rule!($second ?);
-        Rule::And(vec![first, second])
+        Rule::and(vec![first, second])
     }};
 
     // AND operation(s) using '&' (recursive)
@@ -154,11 +180,12 @@ macro_rules! rule {
         let first_rule = rule!($first);
         let rest_rule = rule!($($rest)+);
         match rest_rule {
-            Rule::And(mut rules) => {
+            Rule::And(rules) => {
+                let mut rules: Vec<_> = rules.into();
                 rules.insert(0, first_rule);
-                Rule::And(rules)
+                Rule::and(rules)
             },
-            _ => Rule::And(vec![first_rule, rest_rule])
+            _ => Rule::and(vec![first_rule, rest_rule])
         }
     }};
 
@@ -167,11 +194,12 @@ macro_rules! rule {
         let first_rule = rule!($first ?);
         let rest_rule = rule!($($rest)+);
         match rest_rule {
-            Rule::And(mut rules) => {
+            Rule::And(rules) => {
+                let mut rules: Vec<_> = rules.into();
                 rules.insert(0, first_rule);
-                Rule::And(rules)
+                Rule::and(rules)
             },
-            _ => Rule::And(vec![first_rule, rest_rule])
+            _ => Rule::and(vec![first_rule, rest_rule])
         }
     }};
 
@@ -179,7 +207,7 @@ macro_rules! rule {
     ($first:tt | $second:tt+ ?) => {{
         let first = rule!($first);
         let second = rule!($second ?);
-        Rule::Or(vec![first, second])
+        Rule::or_1(first, vec![second])
     }};
 
     // OR operation(s) using '|' (recursive)
@@ -187,11 +215,10 @@ macro_rules! rule {
         let first_rule = rule!($first);
         let rest_rule = rule!($($rest)+);
         match rest_rule {
-            Rule::Or(mut rules) => {
-                rules.insert(0, first_rule);
-                Rule::Or(rules)
+            Rule::Or(rules) => {
+                Rule::or_1(first_rule, rules)
             },
-            _ => Rule::Or(vec![first_rule, rest_rule])
+            _ => Rule::or_1(first_rule, vec![rest_rule])
         }
     }};
 
@@ -200,11 +227,10 @@ macro_rules! rule {
         let first_rule = rule!($first ?);
         let rest_rule = rule!($($rest)+);
         match rest_rule {
-            Rule::Or(mut rules) => {
-                rules.insert(0, first_rule);
-                Rule::Or(rules)
+            Rule::Or(rules) => {
+                Rule::or_1(first_rule, rules)
             },
-            _ => Rule::Or(vec![first_rule, rest_rule])
+            _ => Rule::or_1(first_rule, vec![rest_rule])
         }
     }};
 }
@@ -246,7 +272,7 @@ mod tests {
         use Foo::*;
 
         // cannot create the empty OR with the macro
-        let rule = Rule::And(vec![Rule::Atom(A), Rule::Or(vec![])]);
+        let rule = Rule::and(vec![Rule::Atom(A), Rule::Or(vec![].into_boxed_slice())]);
 
         assert_eq!(
             rule.validate_atoms(vec![A]).unwrap_err(),
@@ -271,18 +297,19 @@ mod tests {
             assert_eq!(
                 rule,
                 // (A & B & C) | (D & (B | C)) | C
-                Rule::Or(vec![
-                    Rule::And(vec![
+                Rule::or(vec![
+                    Rule::and(vec![
                         Rule::Atom(Foo::A),
                         Rule::Atom(Foo::B),
                         Rule::Atom(Foo::C)
                     ]),
-                    Rule::And(vec![
+                    Rule::and(vec![
                         Rule::Atom(Foo::D),
-                        Rule::Or(vec![Rule::Atom(Foo::B), Rule::Atom(Foo::C)])
+                        Rule::or(vec![Rule::Atom(Foo::B), Rule::Atom(Foo::C)]).unwrap()
                     ]),
                     Rule::Atom(Foo::C)
                 ])
+                .unwrap()
             );
         }
 
@@ -411,22 +438,22 @@ mod tests {
             let rule = grammar();
             assert_eq!(
                 rule,
-                Rule::Or(vec![
+                Rule::or(vec![
                     // (A? & (B & C)) | (D & (B | C)?)
-                    Rule::And(vec![
+                    Rule::and(vec![
                         Rule::Optional(Box::new(Rule::Atom(Foo::A))),
                         // automatically open the parentheses
                         Rule::Atom(Foo::B),
                         Rule::Atom(Foo::C)
                     ]),
-                    Rule::And(vec![
+                    Rule::and(vec![
                         Rule::Atom(Foo::D),
-                        Rule::Optional(Box::new(Rule::Or(vec![
-                            Rule::Atom(Foo::B),
-                            Rule::Atom(Foo::C)
-                        ])))
+                        Rule::Optional(Box::new(
+                            Rule::or(vec![Rule::Atom(Foo::B), Rule::Atom(Foo::C)]).unwrap()
+                        ))
                     ]),
                 ])
+                .unwrap()
             );
         }
 
@@ -552,29 +579,32 @@ mod tests {
             let rule = grammar();
             assert_eq!(
                 rule,
-                Rule::Or(vec![
+                Rule::or(vec![
                     // (((A & C)? | (B & C)) & D) | (B & (C | (A & D)?))
-                    Rule::And(vec![
-                        Rule::Or(vec![
-                            Rule::Optional(Box::new(Rule::And(vec![
+                    Rule::and(vec![
+                        Rule::or(vec![
+                            Rule::Optional(Box::new(Rule::and(vec![
                                 Rule::Atom(Foo::A),
                                 Rule::Atom(Foo::C)
                             ]))),
-                            Rule::And(vec![Rule::Atom(Foo::B), Rule::Atom(Foo::C)]),
-                        ]),
+                            Rule::and(vec![Rule::Atom(Foo::B), Rule::Atom(Foo::C)]),
+                        ])
+                        .unwrap(),
                         Rule::Atom(Foo::D)
                     ]),
-                    Rule::And(vec![
+                    Rule::and(vec![
                         Rule::Atom(Foo::B),
-                        Rule::Or(vec![
+                        Rule::or(vec![
                             Rule::Atom(Foo::C),
-                            Rule::Optional(Box::new(Rule::And(vec![
+                            Rule::Optional(Box::new(Rule::and(vec![
                                 Rule::Atom(Foo::A),
                                 Rule::Atom(Foo::D)
                             ])))
                         ])
+                        .unwrap()
                     ])
                 ])
+                .unwrap()
             );
         }
 
